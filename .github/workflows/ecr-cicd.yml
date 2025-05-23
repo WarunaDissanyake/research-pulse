@@ -1,0 +1,44 @@
+# .github/workflows/ecr-cicd.yml
+name: CI/CD pipeline with ECR
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION:          ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY_URI:  ${{ secrets.ECR_REPOSITORY_URI }}
+  MODEL_S3_URI:        ${{ secrets.MODEL_S3_URI }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image to ECR (Lambda compatible)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.ECR_REPOSITORY_URI }}:latest
+          platforms: linux/amd64
+          build-args: |
+            MODEL_S3_URI=${{ env.MODEL_S3_URI }}
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION=${{ env.AWS_REGION }}
+          provenance: false     # Disable OCI metadata
+          sbom: false           # Disable SBOM (also OCI)
