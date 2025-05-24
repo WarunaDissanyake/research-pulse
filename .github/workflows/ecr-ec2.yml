@@ -2,9 +2,9 @@ name: CICD pipeline with ECR and EC2
 run-name: CICD pipeline with ECR and EC2
 
 on:
-  push:
-    branches:
-      - main
+#  push:
+#    branches:
+#      - main
 
 env:
   SSH_USER: ${{ secrets.SSH_USER }}
