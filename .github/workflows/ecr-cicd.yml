@@ -2,9 +2,9 @@
 name: CI/CD pipeline with ECR
 
 on:
-  push:
-    branches:
-      - main
+#  push:
+#    branches:
+#      - main
 
 env:
   AWS_REGION:          ${{ secrets.AWS_REGION }}
