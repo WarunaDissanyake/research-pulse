@@ -1,4 +1,5 @@
-name: Deploy FastAPI App to EC2
+name: CICD pipeline with ECR and EC2
+run-name: CICD pipeline with ECR and EC2
 
 on:
   push:
@@ -22,7 +23,7 @@ env:
 
 jobs:
   ecr:
-    name: Build and Push Image to ECR
+    name: Build and Push Docker Image to ECR
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -41,7 +42,7 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push Docker Image
+      - name: Build and Push Docker Image with Model from S3
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -53,26 +54,68 @@ jobs:
             AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION=${{ env.AWS_REGION }}
 
-  deploy:
+  ec2:
     needs: ecr
-    name: Deploy to EC2 Instance
+    name: Deploy Docker Container to EC2
     runs-on: ubuntu-latest
     steps:
-      - name: SSH into EC2 and Deploy Docker
+      - name: Ensure Docker is Installed on EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ env.SSH_PRIVATE_KEY }}
           script: |
-            sudo apt-get update
-            sudo apt-get install -y docker.io awscli
+            if ! command -v docker &> /dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y docker.io
+              sudo systemctl enable docker
+              sudo systemctl start docker
+            fi
+
+      - name: Install AWS CLI on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          script: |
+            if ! command -v aws &> /dev/null; then
+              sudo apt-get update
+              sudo apt-get install -y awscli
+            fi
+
+      - name: Configure AWS Credentials on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          script: |
             aws configure set aws_access_key_id ${{ env.AWS_ACCESS_KEY_ID }}
             aws configure set aws_secret_access_key ${{ env.AWS_SECRET_ACCESS_KEY }}
             aws configure set region ${{ env.AWS_REGION }}
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
-            docker stop fastapi-app || true
-            docker rm fastapi-app || true
-            docker rmi -f ${{ env.ECR_REPOSITORY_URI }} || true
-            docker pull ${{ env.ECR_REPOSITORY_URI }}:latest
-            docker run -d --name fastapi-app -p 80:8000 ${{ env.ECR_REPOSITORY_URI}}:latest
+
+      - name: Login to ECR on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          script: |
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+
+      - name: Deploy Docker Container on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_PRIVATE_KEY }}
+          script: |
+            CONTAINER_NAME=fastapi-app
+            PORT=80
+            sudo docker stop $CONTAINER_NAME || true
+            sudo docker rm $CONTAINER_NAME || true
+            sudo docker rmi -f ${{ env.ECR_REPOSITORY_URI }} || true
+            sudo docker pull ${{ env.ECR_REPOSITORY_URI }}:latest
+            sudo docker run -d --name $CONTAINER_NAME -p $PORT:8000 ${{ env.ECR_REPOSITORY_URI}}:latest
